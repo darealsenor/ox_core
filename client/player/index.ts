@@ -8,18 +8,11 @@ const callableMethods: Dict<true> = {};
 class PlayerSingleton {
   userId: number;
   charId?: number;
-  stateId?: string;
   #isLoaded: boolean;
-  #groups: Dict<number>;
-  #statuses: Dict<number>;
-  #metadata: Dict<any>;
   #state: StateBagInterface;
 
   constructor() {
     this.#isLoaded = false;
-    this.#groups = {};
-    this.#statuses = {};
-    this.#metadata = {};
     this.#state = LocalPlayer.state;
 
     Object.entries(Object.getOwnPropertyDescriptors(this.constructor.prototype)).reduce(
@@ -30,48 +23,6 @@ class PlayerSingleton {
       },
       callableMethods,
     );
-
-    netEvent('ox:startCharacterSelect', (userId: number) => {
-      this.userId = userId;
-
-      for (const key in this.#groups) delete this.#groups[key];
-
-      for (const key in this.#metadata) delete this.#metadata[key];
-    });
-
-    netEvent('ox:setActiveCharacter', async (character: Character, groups: Record<string, number>) => {
-      OxPlayer.charId = character.charId;
-      OxPlayer.stateId = character.stateId;
-
-      for (const key in groups) this.#groups[key] = groups[key];
-
-      DEV: {
-        console.log(this);
-        console.log(this.#groups);
-        console.log(this.#statuses);
-      }
-    });
-
-    netEvent('ox:setPlayerData', (key: string, value: any) => {
-      if (!this.charId) return;
-
-      this.#metadata[key] = value;
-      emit(`ox:player:${key}`, value);
-    });
-
-    netEvent('ox:setPlayerStatus', (key: string, value: number, set?: boolean) => {
-      if (set) {
-        Statuses[key] = GlobalState[`status.${key}`];
-        this.#statuses[key] = value;
-        return;
-      }
-
-      this.#statuses[key] += value;
-    });
-
-    netEvent('ox:setGroup', (name: string, grade: number) => {
-      this.#groups[name] = grade;
-    });
 
     exports('GetPlayer', () => this);
 
@@ -100,104 +51,7 @@ class PlayerSingleton {
     return this.#state;
   }
 
-  get<K extends string>(key: K | keyof PlayerMetadata): K extends keyof PlayerMetadata ? PlayerMetadata[K] : any;
-  get(key?: string) {
-    if (!key) return OxPlayer;
-
-    return this.#metadata[key];
-  }
-
-  getGroup(filter: string): number;
-  getGroup(filter: string[] | Record<string, number>): [string, number] | [];
-  getGroup(filter: string | string[] | Record<string, number>) {
-    if (typeof filter === 'string') {
-      return this.#groups[filter];
-    }
-
-    if (Array.isArray(filter)) {
-      for (const name of filter) {
-        const grade = this.#groups[name];
-        if (grade) return [name, grade];
-      }
-    } else if (typeof filter === 'object') {
-      for (const [name, requiredGrade] of Object.entries(filter)) {
-        const grade = this.#groups[name];
-        if (grade && (requiredGrade as number) <= grade) {
-          return [name, grade];
-        }
-      }
-    }
-  }
-
-  getGroupByType(type: string) {
-    const groupNames: string[] = GlobalState.groups;
-    const groups = groupNames.reduce((acc, groupName) => {
-      const group: OxGroup = GlobalState[`group.${groupName}`];
-
-      if (group.type === type) acc.push(groupName);
-
-      return acc;
-    }, [] as string[]);
-
-    return this.getGroup(groups);
-  }
-
-  getGroups() {
-    return this.#groups;
-  }
-
-  getStatus(name: string) {
-    return this.#statuses[name];
-  }
-
-  getStatuses() {
-    return this.#statuses;
-  }
-
-  setStatus(name: string, value: number) {
-    if (this.#statuses[name] === undefined) return false;
-
-    this.#statuses[name] = value;
-    return true;
-  }
-
-  addStatus(name: string, value: number) {
-    if (this.#statuses[name] === undefined) return false;
-
-    this.#statuses[name] += value;
-    return true;
-  }
-
-  removeStatus(name: string, value: number) {
-    if (this.#statuses[name] === undefined) return false;
-
-    this.#statuses[name] -= value;
-    return true;
-  }
-
-  hasPermission(permission: string): boolean {
-    const matchResult = permission.match(/^group\.([^.]+)\.(.*)/);
-    const groupName = matchResult?.[1];
-    permission = matchResult?.[2] ?? permission;
-
-    if (groupName) {
-      const grade = this.#groups[groupName];
-
-      if (!grade) return false;
-
-      const permissions = GetGroupPermissions(groupName);
-
-      for (let g = grade; g > 0; g--) {
-        const value = permissions[g] && permissions[g][permission];
-
-        if (value !== undefined) return value;
-      }
-    }
-
-    return false;
-  }
 }
 
 export const OxPlayer = new PlayerSingleton();
 
-import './status';
